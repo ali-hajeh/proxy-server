@@ -508,6 +508,7 @@ ENVFILE
 
     chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
     print_msg "Application files created"
+    print_warn "IMPORTANT: Update REDIS_ADDR in $APP_DIR/.env before starting"
 }
 
 # Copy local source files
@@ -522,14 +523,20 @@ copy_local_files() {
     cp -r "$SCRIPT_DIR/cache" "$APP_DIR/"
     cp -r "$SCRIPT_DIR/handlers" "$APP_DIR/"
     
-    if [[ -f "$SCRIPT_DIR/env.example" ]]; then
+    # Prefer .env if it exists, otherwise use env.example
+    if [[ -f "$SCRIPT_DIR/.env" ]]; then
+        cp "$SCRIPT_DIR/.env" "$APP_DIR/.env"
+        print_msg "Copied .env configuration"
+    elif [[ -f "$SCRIPT_DIR/env.example" ]]; then
         cp "$SCRIPT_DIR/env.example" "$APP_DIR/.env"
+        print_warn "Copied env.example - update REDIS_ADDR in $APP_DIR/.env"
     else
         cat > "$APP_DIR/.env" << ENVFILE
 PORT=${SERVICE_PORT}
 REDIS_ADDR=your-redis-host:6379
 REDIS_PASSWORD=
 ENVFILE
+        print_warn "Created default .env - update REDIS_ADDR in $APP_DIR/.env"
     fi
     
     chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
