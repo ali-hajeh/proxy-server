@@ -152,6 +152,7 @@ For URLs that require anti-bot bypass or residential proxies, use the `useAdvanc
 
 **Behavior:**
 - Requests are routed through scrape.do's proxy network
+- **`cache_key` is required** when using advanced proxy
 - **Minimum cache TTL is enforced to 1 day (86400 seconds)** to optimize API usage
 - Headers are handled by scrape.do (not forwarded from client)
 

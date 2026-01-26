@@ -75,6 +75,13 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 		}
 	}
 
+	// Enforce cache_key when using advanced proxy (to optimize API usage)
+	if useAdvancedProxy && cacheKey == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "cache_key is required when using advanced proxy",
+		})
+	}
+
 	// Enforce minimum 1 day cache when using advanced proxy
 	if useAdvancedProxy && cacheTTL < AdvancedProxyMinCacheTTL {
 		cacheTTL = AdvancedProxyMinCacheTTL

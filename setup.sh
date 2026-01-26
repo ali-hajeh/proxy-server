@@ -312,6 +312,10 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 		}
 	}
 
+	if useAdvancedProxy && cacheKey == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "cache_key is required when using advanced proxy"})
+	}
+
 	if useAdvancedProxy && cacheTTL < AdvancedProxyMinCacheTTL {
 		cacheTTL = AdvancedProxyMinCacheTTL
 	}
