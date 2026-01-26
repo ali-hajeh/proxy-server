@@ -82,7 +82,7 @@ POST /proxy?url=<target>&cache_key=<key>&cache_ttl=<seconds>
 | `url` | query | **Yes** | Target URL to proxy (must be http/https) |
 | `cache_key` | query | No | Custom cache key. **Caching is skipped if not provided** |
 | `cache_ttl` | query | No | Cache TTL in seconds (default: 300) |
-| `useAdvancedProxy` | query | No | Set to `true` to route through scrape.do (min cache: 1 day) |
+| `useAdvancedProxy` | query | No | Set to `true` to route through scrape.do (min cache: 1 hour) |
 
 #### Additional Query Parameters
 
@@ -153,7 +153,7 @@ For URLs that require anti-bot bypass or residential proxies, use the `useAdvanc
 **Behavior:**
 - Requests are routed through scrape.do's proxy network
 - **`cache_key` is required** when using advanced proxy
-- **Minimum cache TTL is enforced to 1 day (86400 seconds)** to optimize API usage
+- **Minimum cache TTL is enforced to 1 hour (3600 seconds)** to optimize API usage
 - Headers are handled by scrape.do (not forwarded from client)
 
 **Example:**

@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	DefaultCacheTTL         = 300   // 5 minutes in seconds
-	AdvancedProxyMinCacheTTL = 86400 // 1 day in seconds (minimum for scrape.do)
+	DefaultCacheTTL         = 300  // 5 minutes in seconds
+	AdvancedProxyMinCacheTTL = 3600 // 1 hour in seconds (minimum for scrape.do)
 	RequestTimeout          = 30 * time.Second
 	ScrapeDoBaseURL         = "https://api.scrape.do/"
 )
