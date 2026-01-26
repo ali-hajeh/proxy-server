@@ -340,7 +340,7 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 	finalURL := h.buildTargetURL(targetURL, c)
 
 	if useAdvancedProxy {
-		finalURL = fmt.Sprintf("%s?token=%s&url=%s", ScrapeDoBaseURL, h.scrapeDoToken, url.QueryEscape(finalURL))
+		finalURL = fmt.Sprintf("%s?token=%s&render=true&url=%s", ScrapeDoBaseURL, h.scrapeDoToken, url.QueryEscape(finalURL))
 		log.Printf("Using advanced proxy for: %s", targetURL)
 	}
 
