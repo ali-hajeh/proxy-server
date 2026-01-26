@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -16,14 +18,17 @@ import (
 )
 
 const (
-	DefaultCacheTTL = 300 // 5 minutes in seconds
-	RequestTimeout  = 30 * time.Second
+	DefaultCacheTTL         = 300   // 5 minutes in seconds
+	AdvancedProxyMinCacheTTL = 86400 // 1 day in seconds (minimum for scrape.do)
+	RequestTimeout          = 30 * time.Second
+	ScrapeDoBaseURL         = "https://api.scrape.do/"
 )
 
 // ProxyHandler handles proxy requests with caching
 type ProxyHandler struct {
-	redis      *cache.RedisClient
-	httpClient *http.Client
+	redis        *cache.RedisClient
+	httpClient   *http.Client
+	scrapeDoToken string
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -36,6 +41,7 @@ func NewProxyHandler(redis *cache.RedisClient) *ProxyHandler {
 				return http.ErrUseLastResponse // Don't follow redirects automatically
 			},
 		},
+		scrapeDoToken: os.Getenv("SCRAPE_DO_TOKEN"),
 	}
 }
 
@@ -60,7 +66,8 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 	// Get optional cache parameters
 	cacheKey := c.Query("cache_key")
 	cacheTTLStr := c.Query("cache_ttl")
-	
+	useAdvancedProxy := c.Query("useAdvancedProxy") == "true"
+
 	cacheTTL := DefaultCacheTTL
 	if cacheTTLStr != "" {
 		if ttl, err := strconv.Atoi(cacheTTLStr); err == nil && ttl > 0 {
@@ -68,17 +75,31 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 		}
 	}
 
+	// Enforce minimum 1 day cache when using advanced proxy
+	if useAdvancedProxy && cacheTTL < AdvancedProxyMinCacheTTL {
+		cacheTTL = AdvancedProxyMinCacheTTL
+		log.Printf("Advanced proxy enabled: enforcing minimum cache TTL of %d seconds (1 day)", AdvancedProxyMinCacheTTL)
+	}
+
+	// Validate scrape.do token if advanced proxy is requested
+	if useAdvancedProxy && h.scrapeDoToken == "" {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "advanced proxy requested but SCRAPE_DO_TOKEN is not configured",
+		})
+	}
+
 	// Check cache if cache_key is provided
 	if cacheKey != "" && h.redis.IsConnected() {
 		if cached, err := h.redis.Get(cacheKey); err == nil {
 			log.Printf("Cache HIT for key: %s", cacheKey)
-			
+
 			// Set cached headers
 			for key, value := range cached.Headers {
 				c.Set(key, value)
 			}
 			c.Set("X-Cache", "HIT")
-			
+			c.Set("X-Advanced-Proxy", strconv.FormatBool(useAdvancedProxy))
+
 			return c.Status(cached.StatusCode).Send(cached.Body)
 		}
 		log.Printf("Cache MISS for key: %s", cacheKey)
@@ -86,6 +107,12 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 
 	// Build the target URL with forwarded query params
 	finalURL := h.buildTargetURL(targetURL, c)
+
+	// If using advanced proxy, wrap URL with scrape.do
+	if useAdvancedProxy {
+		finalURL = h.buildScrapeDoURL(finalURL)
+		log.Printf("Using advanced proxy (scrape.do) for: %s", targetURL)
+	}
 
 	// Create the proxy request
 	var req *http.Request
@@ -103,8 +130,10 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 		})
 	}
 
-	// Forward relevant headers
-	h.forwardRequestHeaders(c, req)
+	// Forward relevant headers (skip for advanced proxy as scrape.do handles this)
+	if !useAdvancedProxy {
+		h.forwardRequestHeaders(c, req)
+	}
 
 	// Execute the request
 	resp, err := h.httpClient.Do(req)
@@ -149,7 +178,7 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 			Headers:    responseHeaders,
 			Body:       body,
 		}
-		
+
 		if err := h.redis.Set(cacheKey, cachedResp, time.Duration(cacheTTL)*time.Second); err != nil {
 			log.Printf("Failed to cache response: %v", err)
 		} else {
@@ -158,21 +187,32 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 	}
 
 	c.Set("X-Cache", "MISS")
+	c.Set("X-Advanced-Proxy", strconv.FormatBool(useAdvancedProxy))
 	return c.Status(resp.StatusCode).Send(body)
+}
+
+// buildScrapeDoURL wraps the target URL with scrape.do API
+func (h *ProxyHandler) buildScrapeDoURL(targetURL string) string {
+	return fmt.Sprintf("%s?token=%s&url=%s",
+		ScrapeDoBaseURL,
+		h.scrapeDoToken,
+		url.QueryEscape(targetURL),
+	)
 }
 
 // buildTargetURL constructs the final URL with query params (excluding proxy params)
 func (h *ProxyHandler) buildTargetURL(targetURL string, c *fiber.Ctx) string {
 	parsedURL, _ := url.Parse(targetURL)
-	
+
 	// Get existing query params from target URL
 	query := parsedURL.Query()
-	
+
 	// Add query params from request (except our proxy params)
 	excludeParams := map[string]bool{
-		"url":       true,
-		"cache_key": true,
-		"cache_ttl": true,
+		"url":              true,
+		"cache_key":        true,
+		"cache_ttl":        true,
+		"useAdvancedProxy": true,
 	}
 
 	c.Request().URI().QueryArgs().VisitAll(func(key, value []byte) {

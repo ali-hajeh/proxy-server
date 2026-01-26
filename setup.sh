@@ -249,10 +249,12 @@ package handlers
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -263,13 +265,16 @@ import (
 )
 
 const (
-	DefaultCacheTTL = 300
-	RequestTimeout  = 30 * time.Second
+	DefaultCacheTTL          = 300
+	AdvancedProxyMinCacheTTL = 86400
+	RequestTimeout           = 30 * time.Second
+	ScrapeDoBaseURL          = "https://api.scrape.do/"
 )
 
 type ProxyHandler struct {
-	redis      *cache.RedisClient
-	httpClient *http.Client
+	redis         *cache.RedisClient
+	httpClient    *http.Client
+	scrapeDoToken string
 }
 
 func NewProxyHandler(redis *cache.RedisClient) *ProxyHandler {
@@ -281,6 +286,7 @@ func NewProxyHandler(redis *cache.RedisClient) *ProxyHandler {
 				return http.ErrUseLastResponse
 			},
 		},
+		scrapeDoToken: os.Getenv("SCRAPE_DO_TOKEN"),
 	}
 }
 
@@ -297,12 +303,21 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 
 	cacheKey := c.Query("cache_key")
 	cacheTTLStr := c.Query("cache_ttl")
-	
+	useAdvancedProxy := c.Query("useAdvancedProxy") == "true"
+
 	cacheTTL := DefaultCacheTTL
 	if cacheTTLStr != "" {
 		if ttl, err := strconv.Atoi(cacheTTLStr); err == nil && ttl > 0 {
 			cacheTTL = ttl
 		}
+	}
+
+	if useAdvancedProxy && cacheTTL < AdvancedProxyMinCacheTTL {
+		cacheTTL = AdvancedProxyMinCacheTTL
+	}
+
+	if useAdvancedProxy && h.scrapeDoToken == "" {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "advanced proxy requested but SCRAPE_DO_TOKEN is not configured"})
 	}
 
 	if cacheKey != "" && h.redis.IsConnected() {
@@ -312,12 +327,18 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 				c.Set(key, value)
 			}
 			c.Set("X-Cache", "HIT")
+			c.Set("X-Advanced-Proxy", strconv.FormatBool(useAdvancedProxy))
 			return c.Status(cached.StatusCode).Send(cached.Body)
 		}
 		log.Printf("Cache MISS for key: %s", cacheKey)
 	}
 
 	finalURL := h.buildTargetURL(targetURL, c)
+
+	if useAdvancedProxy {
+		finalURL = fmt.Sprintf("%s?token=%s&url=%s", ScrapeDoBaseURL, h.scrapeDoToken, url.QueryEscape(finalURL))
+		log.Printf("Using advanced proxy for: %s", targetURL)
+	}
 
 	var req *http.Request
 	method := c.Method()
@@ -332,7 +353,9 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to create request"})
 	}
 
-	h.forwardRequestHeaders(c, req)
+	if !useAdvancedProxy {
+		h.forwardRequestHeaders(c, req)
+	}
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
@@ -366,13 +389,14 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 	}
 
 	c.Set("X-Cache", "MISS")
+	c.Set("X-Advanced-Proxy", strconv.FormatBool(useAdvancedProxy))
 	return c.Status(resp.StatusCode).Send(body)
 }
 
 func (h *ProxyHandler) buildTargetURL(targetURL string, c *fiber.Ctx) string {
 	parsedURL, _ := url.Parse(targetURL)
 	query := parsedURL.Query()
-	excludeParams := map[string]bool{"url": true, "cache_key": true, "cache_ttl": true}
+	excludeParams := map[string]bool{"url": true, "cache_key": true, "cache_ttl": true, "useAdvancedProxy": true}
 
 	c.Request().URI().QueryArgs().VisitAll(func(key, value []byte) {
 		keyStr := string(key)
@@ -504,6 +528,7 @@ MAINGO
 PORT=${SERVICE_PORT}
 REDIS_ADDR=your-redis-host:6379
 REDIS_PASSWORD=
+SCRAPE_DO_TOKEN=
 ENVFILE
 
     chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
@@ -535,6 +560,7 @@ copy_local_files() {
 PORT=${SERVICE_PORT}
 REDIS_ADDR=your-redis-host:6379
 REDIS_PASSWORD=
+SCRAPE_DO_TOKEN=
 ENVFILE
         print_warn "Created default .env - update REDIS_ADDR in $APP_DIR/.env"
     fi

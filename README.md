@@ -50,6 +50,7 @@ Environment variables (set in `.env` or system environment):
 | `PORT` | `3000` | Server port |
 | `REDIS_ADDR` | `localhost:6379` | Redis server address |
 | `REDIS_PASSWORD` | (empty) | Redis password (if required) |
+| `SCRAPE_DO_TOKEN` | (empty) | Scrape.do API token for advanced proxy |
 
 ## API Reference
 
@@ -81,6 +82,7 @@ POST /proxy?url=<target>&cache_key=<key>&cache_ttl=<seconds>
 | `url` | query | **Yes** | Target URL to proxy (must be http/https) |
 | `cache_key` | query | No | Custom cache key. **Caching is skipped if not provided** |
 | `cache_ttl` | query | No | Cache TTL in seconds (default: 300) |
+| `useAdvancedProxy` | query | No | Set to `true` to route through scrape.do (min cache: 1 day) |
 
 #### Additional Query Parameters
 
@@ -139,6 +141,25 @@ curl -X POST "http://localhost:3000/proxy?url=https://httpbin.org/post" \
 - `Last-Modified`
 - `Expires`
 - `X-Cache` (HIT or MISS)
+- `X-Advanced-Proxy` (true or false)
+
+## Advanced Proxy (Scrape.do)
+
+For URLs that require anti-bot bypass or residential proxies, use the `useAdvancedProxy` parameter to route requests through [scrape.do](https://scrape.do).
+
+**Requirements:**
+- Set `SCRAPE_DO_TOKEN` environment variable with your API token
+
+**Behavior:**
+- Requests are routed through scrape.do's proxy network
+- **Minimum cache TTL is enforced to 1 day (86400 seconds)** to optimize API usage
+- Headers are handled by scrape.do (not forwarded from client)
+
+**Example:**
+```bash
+# Route through advanced proxy (cache enforced to 1 day minimum)
+curl "http://localhost:3000/proxy?url=https://example.com/api&useAdvancedProxy=true&cache_key=example-api"
+```
 
 ## Caching Behavior
 
