@@ -199,9 +199,8 @@ func (h *ProxyHandler) Handle(c *fiber.Ctx) error {
 }
 
 // buildScrapeDoURL wraps the target URL with scrape.do API
-// render=true enables JavaScript rendering to bypass Cloudflare
 func (h *ProxyHandler) buildScrapeDoURL(targetURL string) string {
-	return fmt.Sprintf("%s?token=%s&render=true&url=%s",
+	return fmt.Sprintf("%s?token=%s&url=%s",
 		ScrapeDoBaseURL,
 		h.scrapeDoToken,
 		url.QueryEscape(targetURL),
